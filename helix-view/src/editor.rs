@@ -1062,7 +1062,7 @@ pub struct PersistenceConfig {
 
     // Additional options.
     pub autostart_splits: bool,
-    pub old_files_exclusions: Vec<EqRegex>,
+    pub files_exclusions: Vec<EqRegex>,
 }
 
 impl Default for PersistenceConfig {
@@ -1076,7 +1076,7 @@ impl Default for PersistenceConfig {
             splits: OptionToml::None,
             autostart_splits: false,
             // TODO: any more defaults we should add here?
-            old_files_exclusions: [r".*/\.git/.*", r".*/COMMIT_EDITMSG"]
+            files_exclusions: [r".*/\.git/.*", r".*/COMMIT_EDITMSG"]
                 .iter()
                 .map(|s| Regex::new(s).unwrap().into())
                 .collect(),
@@ -2119,14 +2119,7 @@ impl Editor {
 
         // Restore file position
         // This needs to happen after the call to switch, since switch messes with view offsets
-        if new_doc
-            && !self
-                .config()
-                .persistence
-                .old_files_exclusions
-                .iter()
-                .any(|r| r.is_match(&path.to_string_lossy()))
-        {
+        if new_doc && !self.config().persistence.exclude(&path.to_string_lossy()) {
             if let Some((view_position, selection)) =
                 self.old_file_locs.get(&path).map(|x| x.to_owned())
             {
@@ -2168,9 +2161,7 @@ impl Editor {
                 if !self
                     .config()
                     .persistence
-                    .old_files_exclusions
-                    .iter()
-                    .any(|r| r.is_match(&loc.path.to_string_lossy()))
+                    .exclude(&loc.path.to_string_lossy())
                 {
                     self.config().persistence.push_file_history(&loc);
                     self.old_file_locs
@@ -2241,9 +2232,7 @@ impl Editor {
                 if !self
                     .config()
                     .persistence
-                    .old_files_exclusions
-                    .iter()
-                    .any(|r| r.is_match(&loc.path.to_string_lossy()))
+                    .exclude(&loc.path.to_string_lossy())
                 {
                     self.config().persistence.push_file_history(&loc);
                     self.old_file_locs
