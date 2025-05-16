@@ -1799,7 +1799,7 @@ fn find_next_char_impl(
     }
 }
 
-fn find_char_impl_direction<M: CharMatcher + Clone + Copy>(
+fn find_char_impl_selection<M: CharMatcher + Clone + Copy>(
     editor: &mut Editor,
     search_fn: fn(RopeSlice, M, usize, usize, bool) -> Option<usize>,
     inclusive: bool,
@@ -1807,7 +1807,8 @@ fn find_char_impl_direction<M: CharMatcher + Clone + Copy>(
     char_matcher: M,
     count: usize,
     direction: Direction,
-) {
+) -> Selection
+{
     let op = match direction {
         Direction::Forward => Sub::sub,
         Direction::Backward => Add::add,
@@ -1815,7 +1816,7 @@ fn find_char_impl_direction<M: CharMatcher + Clone + Copy>(
     let (view, doc) = current!(editor);
     let text = doc.text().slice(..);
 
-    let selection = doc.selection(view.id).clone().transform(|range| {
+    doc.selection(view.id).clone().transform(|range| {
         // TODO: use `Range::cursor()` here instead.  However, that works in terms of
         // graphemes, whereas this function doesn't yet.  So we're doing the same logic
         // here, but just in terms of chars instead.
@@ -1834,8 +1835,7 @@ fn find_char_impl_direction<M: CharMatcher + Clone + Copy>(
                 range
             }
         })
-    });
-    doc.set_selection(view.id, selection);
+    })
 }
 
 fn find_prev_char_impl(
@@ -6860,7 +6860,6 @@ fn evil_delete_to_prev_char(cx: &mut Context) {
     find_char_and_delete(cx, Direction::Backward, true, true)
 }
 
-// TODO: make it so that undo doesn't end up selecting the deleted text.
 fn find_char_and_delete(cx: &mut Context, direction: Direction, inclusive: bool, extend: bool) {
     // TODO: count is reset to 1 before next key so we move it into the closure here.
     // Would be nice to carry over.
@@ -6889,27 +6888,25 @@ fn find_char_and_delete(cx: &mut Context, direction: Direction, inclusive: bool,
             } => ch,
             _ => return,
         };
-        let motion = move |editor: &mut Editor| {
-            let search_fn =
-                match direction {
-                    Direction::Forward => find_next_char_impl,
-                    Direction::Backward => find_prev_char_impl,
-                };
-            find_char_impl_direction(
-                editor,
+        let search_fn =
+            match direction {
+                Direction::Forward => find_next_char_impl,
+                Direction::Backward => find_prev_char_impl,
+            };
+        let selection =
+            find_char_impl_selection(
+                cx.editor,
                 search_fn,
                 inclusive,
                 extend,
                 ch,
                 count,
                 direction,
-            )
-        };
+            );
 
-        // FIXME: maybe this is the apply_motion call that causes the selection to happen on undo?
-        // TODO: maybe we should remove this intermediate step from the undo list?
-        cx.editor.apply_motion(motion);
-        delete_selection(cx);
+        let (view, doc) = current!(cx.editor);
+        let transaction = Transaction::delete_by_selection(doc.text(), &selection, |range| (range.from(), range.to()));
+        doc.apply(&transaction, view.id);
     })
 }
 
