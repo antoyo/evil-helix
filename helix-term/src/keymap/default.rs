@@ -738,7 +738,10 @@ pub fn default_evil() -> HashMap<Mode, KeyTrie> {
         "C-x" => decrement,
 
         "c" => evil_change,
-        "d" => evil_delete,
+        "d" => { "Delete"
+            "f" => evil_delete_to_next_char,
+            "F" => evil_delete_to_prev_char,
+        },
         "x" => evil_delete_immediate,
         "y" => evil_yank,
         "b" => evil_prev_word_start,

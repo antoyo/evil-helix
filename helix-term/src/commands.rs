@@ -73,7 +73,7 @@ use std::{
     fmt,
     future::Future,
     io::Read,
-    num::NonZeroUsize,
+    num::NonZeroUsize, ops::{Add, Sub},
 };
 
 use std::{
@@ -646,7 +646,8 @@ impl MappableCommand {
         evil_next_long_word_end, "Next long word end (evil)",
         evil_move_paragraph_forward, "Move forward by a paragraph (evil)",
         evil_move_paragraph_backward, "Move backward by a paragraph (evil)",
-        evil_delete, "Delete (evil)",
+        evil_delete_to_next_char, "Delete to next char",
+        evil_delete_to_prev_char, "Delete to prev char",
         evil_delete_immediate, "Delete immediately (evil)",
         evil_yank, "Yank (evil)",
         evil_change, "Change (evil)",
@@ -1796,6 +1797,45 @@ fn find_next_char_impl(
         };
         search::find_nth_next(text, ch, pos, n).map(|n| n.saturating_sub(1))
     }
+}
+
+fn find_char_impl_direction<M: CharMatcher + Clone + Copy>(
+    editor: &mut Editor,
+    search_fn: fn(RopeSlice, M, usize, usize, bool) -> Option<usize>,
+    inclusive: bool,
+    extend: bool,
+    char_matcher: M,
+    count: usize,
+    direction: Direction,
+) {
+    let op = match direction {
+        Direction::Forward => Sub::sub,
+        Direction::Backward => Add::add,
+    };
+    let (view, doc) = current!(editor);
+    let text = doc.text().slice(..);
+
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        // TODO: use `Range::cursor()` here instead.  However, that works in terms of
+        // graphemes, whereas this function doesn't yet.  So we're doing the same logic
+        // here, but just in terms of chars instead.
+        let search_start_pos = if range.anchor < range.head {
+            range.head - 1
+        } else {
+            range.head
+        };
+
+        search_fn(text, char_matcher, search_start_pos, count, inclusive).map_or(range, |pos| {
+            if extend {
+                range.put_cursor(text, pos, true)
+            } else {
+                let mut range = Range::point(range.cursor(text)).put_cursor(text, pos, true);
+                range.anchor = op(range.head, 1);
+                range
+            }
+        })
+    });
+    doc.set_selection(view.id, selection);
 }
 
 fn find_prev_char_impl(
@@ -6812,8 +6852,65 @@ fn evil_next_long_word_end(cx: &mut Context) {
     evil_move_word_impl(cx, movement::move_next_long_word_end);
 }
 
-fn evil_delete(cx: &mut Context) {
-    EvilCommands::delete(cx, Operation::Delete);
+fn evil_delete_to_next_char(cx: &mut Context) {
+    find_char_and_delete(cx, Direction::Forward, true, true)
+}
+
+fn evil_delete_to_prev_char(cx: &mut Context) {
+    find_char_and_delete(cx, Direction::Backward, true, true)
+}
+
+// TODO: make it so that undo doesn't end up selecting the deleted text.
+fn find_char_and_delete(cx: &mut Context, direction: Direction, inclusive: bool, extend: bool) {
+    // TODO: count is reset to 1 before next key so we move it into the closure here.
+    // Would be nice to carry over.
+    let count = cx.count();
+
+    // need to wait for next key
+    // TODO: should this be done by grapheme rather than char?  For example,
+    // we can't properly handle the line-ending CRLF case here in terms of char.
+    cx.on_next_key(move |cx, event| {
+        let ch = match event {
+            KeyEvent {
+                code: KeyCode::Enter,
+                ..
+            } => {
+                find_char_line_ending(cx, count, direction, inclusive, extend);
+                return;
+            }
+
+            KeyEvent {
+                code: KeyCode::Tab, ..
+            } => '\t',
+
+            KeyEvent {
+                code: KeyCode::Char(ch),
+                ..
+            } => ch,
+            _ => return,
+        };
+        let motion = move |editor: &mut Editor| {
+            let search_fn =
+                match direction {
+                    Direction::Forward => find_next_char_impl,
+                    Direction::Backward => find_prev_char_impl,
+                };
+            find_char_impl_direction(
+                editor,
+                search_fn,
+                inclusive,
+                extend,
+                ch,
+                count,
+                direction,
+            )
+        };
+
+        // FIXME: maybe this is the apply_motion call that causes the selection to happen on undo?
+        // TODO: maybe we should remove this intermediate step from the undo list?
+        cx.editor.apply_motion(motion);
+        delete_selection(cx);
+    })
 }
 
 fn evil_delete_immediate(cx: &mut Context) {
