@@ -1,0 +1,11 @@
+evil-helix
+
+Portions of this library comes from evilhelix
+(https://github.com/RoastBeefer00/evilhelix — commit
+d5ea2c97d084aba6f3e314b283238ce8a8690bda) which is developed by RoastBeefer00
+under a MPL-2.0 license.
+
+The following files include code from evilhelix:
+
+ * helix-term/src/commands.rs
+ * helix-term/src/keymap/default.rs
