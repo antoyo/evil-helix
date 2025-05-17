@@ -14,11 +14,17 @@ pub enum AutoSaveEvent {
     LeftInsertMode,
 }
 
+#[derive(Debug)]
+pub enum SwapEvent {
+    DocumentChanged { save_after: u64 },
+}
+
 pub struct Handlers {
     // only public because most of the actual implementation is in helix-term right now :/
     pub completions: Sender<lsp::CompletionEvent>,
     pub signature_hints: Sender<lsp::SignatureHelpEvent>,
     pub auto_save: Sender<AutoSaveEvent>,
+    pub swap: Sender<SwapEvent>,
 }
 
 impl Handlers {

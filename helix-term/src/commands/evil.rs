@@ -1,6 +1,5 @@
 use std::{
-    borrow::Cow,
-    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
+    borrow::Cow, path::PathBuf, sync::{RwLock, RwLockReadGuard, RwLockWriteGuard}
 };
 
 use helix_core::movement::move_prev_word_start;
@@ -16,12 +15,13 @@ use helix_core::{
     line_ending::rope_is_line_ending,
     graphemes::prev_grapheme_boundary,
 };
+use helix_loader::config_dir;
 use helix_view::document::Mode;
 use helix_view::editor::EvilSelectMode;
 use helix_view::input::KeyEvent;
 use once_cell::sync::Lazy;
 
-use crate::commands::{enter_insert_mode, exit_select_mode, Context, Extend, Operation};
+use crate::{commands::{enter_insert_mode, exit_select_mode, Context, Extend, Operation}, compositor};
 
 use super::OnKeyCallbackKind;
 
@@ -861,4 +861,52 @@ pub fn evil_movement_paragraph_forward(
         range.put_cursor(slice, head, true).anchor
     };
     Range::new(anchor, head)
+}
+
+pub fn write_all_swap(cx: &mut compositor::Context) -> anyhow::Result<()> {
+    let mut errors: Vec<&'static str> = Vec::new();
+    let config = cx.editor.config();
+    let jobs = &mut cx.jobs;
+    let saves: Vec<_> = cx
+        .editor
+        .documents
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .filter_map(|id| {
+            let doc = doc!(cx.editor, &id);
+            // TODO: add another boolean (saved_to_swap) and use it instead (in addition?) of
+            // is_modified to avoid saving multiple times to the swap without edits in between.
+            if !doc.is_modified() {
+                return None;
+            }
+            if doc.path().is_none() {
+                return None;
+            }
+
+            // Look for a view to apply the formatting change to.
+            let target_view = cx.editor.get_synced_view_id(doc.id());
+            Some((id, target_view))
+        })
+        .collect();
+
+    for (doc_id, target_view) in saves {
+        let doc = doc_mut!(cx.editor, &doc_id);
+        let view = view_mut!(cx.editor, target_view);
+
+        // TODO: save the swap file instead of the actual file.
+        // TODO: make sure this atomically replace the previous swap file, if any.
+        //cx.editor.save::<PathBuf>(doc_id, None, force)?;
+    }
+
+    if !errors.is_empty() {
+        bail!("{:?}", errors);
+    }
+
+    Ok(())
+}
+
+fn swap_dir() -> PathBuf {
+    config_dir().join("swap")
 }
